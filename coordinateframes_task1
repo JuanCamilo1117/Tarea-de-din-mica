@@ -1,0 +1,402 @@
+# ==============================================================
+# NOTA IMPORTANTE:
+# Si bien este código no cuenta con un menú interactivo para modificar
+# parámetros, por cuestiones de practicidad se han añadido comentarios
+# que indican en qué punto deben ingresarse las variables de entrada
+# (como velocidades, ángulos de Euler, sistema de referencia).
+# De esta manera es posible evaluar fácilmente diferentes resultados
+# y parametrizar el código manualmente sin necesidad de menús adicionales.
+# ==============================================================
+
+
+import numpy as np
+import plotly.graph_objects as go
+
+# === Función para crear matriz de rotación a partir de ángulos de Euler ===
+def euler_to_rotation_matrix(roll_angle, pitch_angle, yaw_angle, degrees=True): #Para poder trabajar con grados.
+    if degrees:
+        roll_angle = np.radians(roll_angle)
+        pitch_angle = np.radians(pitch_angle)
+        yaw_angle = np.radians(yaw_angle)
+    # Rotaciones elementales
+    Rx = np.array([[1, 0, 0],
+                   [0, np.cos(roll_angle), -np.sin(roll_angle)],
+                   [0, np.sin(roll_angle), np.cos(roll_angle)]])
+    Ry = np.array([[np.cos(pitch_angle), 0, np.sin(pitch_angle)],
+                   [0, 1, 0],
+                   [-np.sin(pitch_angle), 0, np.cos(pitch_angle)]])
+    Rz = np.array([[np.cos(yaw_angle), -np.sin(yaw_angle), 0],
+                   [np.sin(yaw_angle), np.cos(yaw_angle), 0],
+                   [0, 0, 1]])
+
+    # Matriz de rotación total Cuerpo → Tierra (orden Z-Y-X)
+    #Se crea la funcion de matriz de rotacion que se expresa como R.
+    R = Rz @ Ry @ Rx
+
+    return R
+
+# === Datos iniciales ===
+# En este espacio se deben ingresar manualmente los vectores de velocidad
+# en el sistema con el que se desee trabajar.
+# Si se trabaja en Tierra → no es necesario modificar nada en Cuerpo.
+# Si se trabaja en Cuerpo → no es necesario modificar nada en Tierra.
+# Estos son solo valores de referencia, y funcionan en ambos sentidos.
+velocidad_avion_tierra = np.array([360,0 , 0])   # Velocidad del avión en sistema Tierra [Vx,Vy,Vz]
+velocidad_viento_tierra = np.array([0,0, 0])  # Velocidad del viento en sistema Tierra [Vx,Vy,Vz]
+velocidad_avion_cuerpo = np.array([360,0 , 0])   # Velocidad del avión en sistema Cuerpo [u,v,w]
+velocidad_viento_cuerpo = np.array([20, 0, 20])  # Velocidad del viento en sistema Cuerpo [u,v,w]
+
+#
+yaw, pitch, roll = 0, 15, 0                 # Orientación del avión en grados
+
+# === Matriz de rotación Cuerpo → Tierra ===
+# Se calcula evaluando la función de matriz de rotación en los ángulos dados (roll, pitch, yaw)
+R_cuerpo_a_tierra = euler_to_rotation_matrix(roll, pitch, yaw)
+
+
+# === Selección del sistema de entrada ===
+sistema_vel_avion = "Cuerpo"   # "Tierra" o "Cuerpo"
+sistema_vel_viento = "Cuerpo"  # "Tierra" o "Cuerpo"
+
+# Velocidad del avión
+if sistema_vel_avion == "Tierra":
+    vel_avion = R_cuerpo_a_tierra.T @ velocidad_avion_tierra  # Convertir Tierra → Cuerpo
+elif sistema_vel_avion == "Cuerpo":
+    vel_avion = velocidad_avion_cuerpo                        # Ya está en Cuerpo, no transformar
+
+# Velocidad del viento
+if sistema_vel_viento == "Tierra":
+    vel_viento = R_cuerpo_a_tierra.T @ velocidad_viento_tierra  # Convertir Tierra → Cuerpo
+elif sistema_vel_viento == "Cuerpo":
+    vel_viento = velocidad_viento_cuerpo                        # Ya está en Cuerpo, no transformar
+
+# === Cálculo de velocidades en distintos sistemas de referencia ===
+
+# --- Velocidades transformadas (en sistema Tierra) ---
+# Convertimos las velocidades al sistema Tierra usando la matriz de rotación cuerpo→tierra.
+# (Si ya están en Tierra, el resultado no cambia porque la transformación se compensó antes con la traspuesta).
+vel_avion_rotado   = R_cuerpo_a_tierra @ vel_avion        # Velocidad del avión en Tierra
+vel_viento_rotado  = R_cuerpo_a_tierra @ vel_viento       # Velocidad del viento en Tierra
+vel_relativa_rotada = vel_viento_rotado + vel_avion_rotado # Velocidad relativa en Tierra (viento - avión))
+
+# --- Velocidades en sistema Cuerpo ---
+# En el paso anterior las velocidades se expresaron en Tierra (por eso llevan el sufijo "rotado").
+# Para volver al sistema del avión (Cuerpo), usamos la transpuesta de la matriz de rotación.
+# Nota: si los datos iniciales ya estaban en Cuerpo, el ida (Cuerpo→Tierra) y vuelta (Tierra→Cuerpo)
+#       se compensan y el resultado es coherente igualmente.
+vel_relativa_cuerpo = R_cuerpo_a_tierra.T @ vel_relativa_rotada  # Velocidad relativa en Cuerpo
+
+# Componentes de la velocidad relativa en Cuerpo
+Vx_cuerpo, Vy_cuerpo, Vz_cuerpo = vel_relativa_cuerpo
+
+# Magnitud de la velocidad relativa en Cuerpo (norma euclidiana)
+magnitud_vel_rel = np.linalg.norm(vel_relativa_cuerpo)
+
+
+# === Ángulos aerodinámicos ===
+angulo_ataque = np.degrees(np.arctan2(Vz_cuerpo, Vx_cuerpo))          # α
+angulo_resbale = -np.degrees(np.arcsin(Vy_cuerpo / magnitud_vel_rel))   # β
+angulo_climb = pitch - angulo_ataque     # γ
+
+# === Escalas para dibujar ===
+escala_ejes = 6
+escala_vectores = 3
+
+fig = go.Figure()
+
+# --- Funciones auxiliares ---
+def add_arrow(fig, start, vec, color, name):
+    fig.add_trace(go.Cone(
+        x=[start[0] + vec[0]],
+        y=[start[1] + vec[1]],
+        z=[start[2] + vec[2]],
+        u=[vec[0]],
+        v=[vec[1]],
+        w=[vec[2]],
+        sizemode="absolute",
+        sizeref=0.8,
+        anchor="tip",
+        showscale=False,
+        colorscale=[[0, color], [1, color]],
+        name=name
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[start[0], start[0] + vec[0]],
+        y=[start[1], start[1] + vec[1]],
+        z=[start[2], start[2] + vec[2]],
+        mode="lines",
+        line=dict(color=color, width=5),
+        showlegend=False
+    ))
+
+def add_label(fig, start, vec, text, color="black"):
+    fig.add_trace(go.Scatter3d(
+        x=[start[0] + vec[0]],
+        y=[start[1] + vec[1]],
+        z=[start[2] + vec[2]],
+        mode="text",
+        text=[text],
+        textfont=dict(color=color, size=16),
+        showlegend=False
+    ))
+
+def add_mesh(fig, vertices, faces, color, opacity, name):
+    vertices_rot = (R_cuerpo_a_tierra @ vertices.T).T
+    fig.add_trace(go.Mesh3d(
+        x=vertices_rot[:,0],
+        y=vertices_rot[:,1],
+        z=vertices_rot[:,2],
+        i=faces[:,0], j=faces[:,1], k=faces[:,2],
+        color=color,
+        opacity=opacity,
+        name=name,
+        showlegend=False
+    ))
+
+# === Fuselaje principal ===
+largo_fuselaje = 6
+ancho_fuselaje = 0.8
+grosor_fuselaje = 0.2
+fuselaje_vertices = np.array([
+    [-largo_fuselaje/2, -ancho_fuselaje/2, -grosor_fuselaje/2],
+    [ largo_fuselaje/2, -ancho_fuselaje/2, -grosor_fuselaje/2],
+    [ largo_fuselaje/2,  ancho_fuselaje/2, -grosor_fuselaje/2],
+    [-largo_fuselaje/2,  ancho_fuselaje/2, -grosor_fuselaje/2],
+    [-largo_fuselaje/2, -ancho_fuselaje/2,  grosor_fuselaje/2],
+    [ largo_fuselaje/2, -ancho_fuselaje/2,  grosor_fuselaje/2],
+    [ largo_fuselaje/2,  ancho_fuselaje/2,  grosor_fuselaje/2],
+    [-largo_fuselaje/2,  ancho_fuselaje/2,  grosor_fuselaje/2]
+])
+faces_box = np.array([
+    [0,1,2],[0,2,3],
+    [4,5,6],[4,6,7],
+    [0,1,5],[0,5,4],
+    [2,3,7],[2,7,6],
+    [1,2,6],[1,6,5],
+    [0,3,7],[0,7,4]
+])
+add_mesh(fig, fuselaje_vertices, faces_box, 'lightgray', 0.5, "Fuselaje")
+
+# === Cola vertical ===
+cola_largo = 1.0
+cola_ancho = 0.1
+cola_altura = -1.5
+cola_vertices = np.array([
+    [-largo_fuselaje/2, -cola_ancho/2, 0],
+    [-largo_fuselaje/2 + cola_largo, -cola_ancho/2, 0],
+    [-largo_fuselaje/2 + cola_largo,  cola_ancho/2, 0],
+    [-largo_fuselaje/2,  cola_ancho/2, 0],
+    [-largo_fuselaje/2, -cola_ancho/2, cola_altura],
+    [-largo_fuselaje/2 + cola_largo, -cola_ancho/2, cola_altura],
+    [-largo_fuselaje/2 + cola_largo,  cola_ancho/2, cola_altura],
+    [-largo_fuselaje/2,  cola_ancho/2, cola_altura]
+])
+add_mesh(fig, cola_vertices, faces_box, 'darkgray', 0.5, "Cola")
+
+# === Alas ===
+ala_largo = 1
+ala_ancho = 6.0
+ala_grosor = 0.05
+ala_vertices = np.array([
+    [-ala_largo/2, -ala_ancho/2, -ala_grosor/2],
+    [ ala_largo/2, -ala_ancho/2, -ala_grosor/2],
+    [ ala_largo/2,  ala_ancho/2, -ala_grosor/2],
+    [-ala_largo/2,  ala_ancho/2, -ala_grosor/2],
+    [-ala_largo/2, -ala_ancho/2,  ala_grosor/2],
+    [ ala_largo/2, -ala_ancho/2,  ala_grosor/2],
+    [ ala_largo/2,  ala_ancho/2,  ala_grosor/2],
+    [-ala_largo/2,  ala_ancho/2,  ala_grosor/2]
+])
+add_mesh(fig, ala_vertices, faces_box, 'silver', 0.5, "Alas")
+
+# === Ejes de referencia ===
+ejes_cuerpo_en_tierra = R_cuerpo_a_tierra @ np.eye(3)
+add_arrow(fig, [0, 0, 0], [escala_ejes, 0, 0], "black", "X Tierra")
+add_arrow(fig, [0, 0, 0], [0, escala_ejes, 0], "black", "Y Tierra")
+add_arrow(fig, [0, 0, 0], [0, 0, escala_ejes], "black", "Z Tierra")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,0]*escala_ejes, "red", "X Cuerpo")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,1]*escala_ejes, "green", "Y Cuerpo")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,2]*escala_ejes, "blue", "Z Cuerpo")
+
+# === Vectores aerodinámicos ===
+va_norm = vel_avion_rotado/np.linalg.norm(vel_avion_rotado)*escala_vectores
+vv_norm = vel_viento_rotado/np.linalg.norm(vel_viento_rotado+1e-6)*escala_vectores
+vrel_norm = vel_relativa_rotada/np.linalg.norm(vel_relativa_rotada)*escala_vectores
+
+add_arrow(fig, [0, 0, 0], va_norm, "blue", "Vel Avión (Vb)")
+add_arrow(fig, [0, 0, 0], vv_norm, "green", "Vel Viento (W)")
+add_arrow(fig, [0, 0, 0], vrel_norm, "magenta", "Vel Relativa (Vrel)")
+
+add_label(fig, [0,0,0], va_norm, "Vb", "blue")
+add_label(fig, [0,0,0], vv_norm, "W", "green")
+add_label(fig, [0,0,0], vrel_norm, "Vrelₗ", "magenta")
+
+# === Razones angulares (p, q, r) en rad/s ===
+p, q, r = 0.05, 0.02, 0.01     # ejemplo: roll, pitch, yaw [rad/s]
+
+# === Longitud visual fija para flechas ===
+LONG_FLECHA = 2               # longitud constante deseada en la escena
+EPS = 1e-12                     # umbral numérico para "cero"
+
+def vec_constante(axis_T, valor, L=LONG_FLECHA):
+    """
+    Devuelve un vector en Tierra con magnitud fija L y dirección dada por:
+      - el eje 'axis_T' (columna de ejes_cuerpo_en_tierra), y
+      - el signo de 'valor' (p, q o r).
+    Si 'valor' es ~0, retorna el vector nulo (no se dibuja flecha).
+    """
+    # Normaliza el eje por robustez (aunque ya debería ser unitario)
+    axis_n = axis_T / (np.linalg.norm(axis_T) + EPS)
+    if abs(valor) < EPS:
+        return np.zeros(3)
+    return np.sign(valor) * axis_n * L
+
+# Vectores de p, q, r en Tierra (longitud constante, dirección por el signo)
+vec_p_T = vec_constante(ejes_cuerpo_en_tierra[:, 0], p)   # alrededor de X_B
+vec_q_T = vec_constante(ejes_cuerpo_en_tierra[:, 1], q)   # alrededor de Y_B
+vec_r_T = vec_constante(ejes_cuerpo_en_tierra[:, 2], r)   # alrededor de Z_B
+
+# Dibujo y etiquetas (sin cambios)
+add_arrow(fig, [0, 0, 0], vec_p_T, "orange", "p")
+add_label(fig, [0, 0, 0], vec_p_T, "p", "orange")
+
+add_arrow(fig, [0, 0, 0], vec_q_T, "darkorange", "q")
+add_label(fig, [0, 0, 0], vec_q_T, "q", "darkorange")
+
+add_arrow(fig, [0, 0, 0], vec_r_T, "gold", "r")
+add_label(fig, [0, 0, 0], vec_r_T, "r", "gold")
+
+# Salida en consola
+print("=== RAZONES ANGULARES (rad/s) ===")
+print(f"p (roll rate):  {p:.4f}")
+print(f"q (pitch rate): {q:.4f}")
+print(f"r (yaw rate):   {r:.4f}")
+
+
+
+# Entrada de datos
+print(f"Velocidad del avión ((Entrada) {sistema_vel_avion}): {velocidad_avion_tierra if sistema_vel_avion=='Tierra' else velocidad_avion_cuerpo}")
+print(f"Velocidad del viento ((Entrada) {sistema_vel_viento}): {velocidad_viento_tierra if sistema_vel_viento=='Tierra' else velocidad_viento_cuerpo}\n")
+
+
+# --- Velocidades transformadas ---
+print("Velocidad del avión expresada en sistema Tierra:", vel_avion_rotado)
+print("Velocidad del viento expresada en sistema Tierra:", vel_viento_rotado)
+print("Velocidad relativa (Vv - Va) expresada en Tierra:", vel_relativa_rotada, "\n")
+
+# --- Velocidades en cuerpo ---
+print(f"Velocidad del avión en sistema Cuerpo: {vel_avion}")
+print(f"Velocidad del viento en sistema Cuerpo: {vel_viento}")
+print("Velocidad relativa (Vv - Va) expresada en  Cuerpo [u,v,w]:", vel_relativa_cuerpo)
+print(f"Magnitud (módulo) de la velocidad relativa: {magnitud_vel_rel:.2f}\n")
+
+# --- Ángulos aerodinámicos ---
+print("=== ÁNGULOS AERODINÁMICOS ===")
+print(f"Ángulo de ataque α [grados]: {angulo_ataque:.2f}°")
+print(f"Ángulo de resbale lateral β [grados]: {angulo_resbale:.2f}°")
+print(f"Ángulo de ascenso/descenso γ [grados]: {angulo_climb:.2f}°")
+
+fig.show()
+
+# === Wing-fixed ↔ Body-fixed (autocontenido; no altera el código previo) ===
+# Reutiliza numpy ya importado como "np".
+
+# --- Rotaciones elementales (activas; mano derecha) ---
+def wb__rot_y(angle_rad: float) -> np.ndarray:
+    c, s = np.cos(angle_rad), np.sin(angle_rad)    # Calcula coseno y seno del ángulo
+    return np.array([[ c, 0., -s],                 # Rotación activa alrededor del eje Y
+                     [0., 1.,  0.],                # Mantiene fijo el eje Y
+                     [ s, 0.,  c]], dtype=float)   # Cambia X y Z según convención mano derecha
+
+def wb__rot_z(angle_rad: float) -> np.ndarray:
+    c, s = np.cos(angle_rad), np.sin(angle_rad)    # Calcula coseno y seno del ángulo
+    return np.array([[ c,  s, 0.],                 # Rotación activa alrededor del eje Z
+                     [-s,  c, 0.],                 # Mantiene fijo el eje Z
+                     [ 0., 0., 1.]], dtype=float)  # Cambia X y Y según convención mano derecha
+
+# --- Utilidades de forma (acepta (3,), (3,N) o (N,3)) ---
+def wb__as_3xN(v):
+    arr = np.asarray(v, dtype=float)               # Convierte a array numpy con tipo float
+    if arr.ndim == 1:                              # Caso vector 1D (3,)
+        if arr.size != 3:
+            raise ValueError("El vector debe tener 3 componentes.")
+        return arr.reshape(3, 1), "1d"             # Devuelve forma (3,1) y marca flag
+    if arr.shape[0] == 3:                          # Caso ya en forma (3,N)
+        return arr, "3xN"
+    if arr.shape[-1] == 3:                         # Caso (N,3), hay que transponer
+        return arr.T, "Nx3"
+    raise ValueError("La entrada debe ser (3,), (3,N) o (N,3).")
+
+def wb__restore_shape(arr_3xN, flag):
+    if flag == "1d":                               # Si era un vector 1D, devuelve (3,)
+        return arr_3xN.ravel()
+    if flag == "Nx3":                              # Si era (N,3), vuelve a esa forma
+        return arr_3xN.T
+    return arr_3xN                                  # Si era (3,N), se deja igual
+
+# --- Matrices compuestas según la lámina: L2(α)·L1(-β) ---
+def wb_R_BW(alpha, beta, degrees=True) -> np.ndarray:
+    """
+    Ala→Cuerpo (Wing→Body):
+    v_B = R_BW v_W,  con  R_BW = R_y(α) · R_z(-β).
+    """
+    a = np.radians(alpha) if degrees else alpha    # Convierte α a radianes si hace falta
+    b = np.radians(beta)  if degrees else beta     # Convierte β a radianes si hace falta
+    return wb__rot_y(a) @ wb__rot_z(-b)            # Composición: primero -β sobre Z, luego α sobre Y
+
+def wb_R_WB(alpha, beta, degrees=True) -> np.ndarray:
+    """
+    Cuerpo→Ala (Body→Wing), inversa de R_BW:
+    v_W = R_WB v_B,  con  R_WB = R_z(β) · R_y(-α).
+    """
+    a = np.radians(alpha) if degrees else alpha    # Convierte α a radianes
+    b = np.radians(beta)  if degrees else beta     # Convierte β a radianes
+    return wb__rot_z(b) @ wb__rot_y(-a)            # Inversa: primero -α sobre Y, luego β sobre Z
+
+# --- Funciones de transformación (vectorizadas) ---
+def wb_wing_to_body(v_w, alpha, beta, degrees=True):
+    """
+    Transforma vector(es) de wing-fixed (W) a body-fixed (B).
+    Implementa: v_B = R_y(α) · R_z(-β) · v_W
+    """
+    V, flag = wb__as_3xN(v_w)                      # Asegura forma (3,N)
+    R = wb_R_BW(alpha, beta, degrees=degrees)      # Construye matriz de transformación
+    out = R @ V                                    # Aplica transformación
+    return wb__restore_shape(out, flag)            # Restaura la forma original
+
+def wb_body_to_wing(v_b, alpha, beta, degrees=True):
+    """
+    Transforma vector(es) de body-fixed (B) a wing-fixed (W).
+    Implementa: v_W = R_z(β) · R_y(-α) · v_B
+    """
+    V, flag = wb__as_3xN(v_b)                      # Asegura forma (3,N)
+    R = wb_R_WB(alpha, beta, degrees=degrees)      # Construye matriz de transformación
+    out = R @ V                                    # Aplica transformación
+    return wb__restore_shape(out, flag)            # Restaura la forma original
+
+# === Ejemplo integrado con las variables (opcional, solo imprime) ===
+# Usamos los ángulos que ya calculaste: angulo_ataque (α) y angulo_resbale (β).
+Vv_wing = wb_body_to_wing(velocidad_viento_cuerpo, alpha=angulo_ataque, beta=angulo_resbale, degrees=True)
+# Transforma velocidad del viento desde Cuerpo a Wing
+
+Va_wing = wb_body_to_wing(vel_avion, alpha=angulo_ataque, beta=angulo_resbale, degrees=True)
+# Transforma velocidad del avión desde Cuerpo a Wing
+
+# Reconversión de verificación (wing→body):
+Vv_body_chk = wb_wing_to_body(Vv_wing, alpha=angulo_ataque, beta=angulo_resbale, degrees=True)
+# Vuelve de Wing a Cuerpo para validar consistencia
+
+Va_body_chk = wb_wing_to_body(Va_wing, alpha=angulo_ataque, beta=angulo_resbale, degrees=True)
+# Vuelve de Wing a Cuerpo para validar consistencia
+
+print("\n=== TRANSFORMACIONES WING↔BODY (usando α y β ) ===")
+print("Viento en Cuerpo [u,v,w]            :", velocidad_viento_cuerpo)   # Muestra vector viento original en Cuerpo
+print("Viento llevado a Wing-Fixed         :", Vv_wing)                   # Muestra transformado a Wing
+print("Verificación (Wing→Body) Vv_body_chk:", Vv_body_chk, "\n")         # Reconversión para chequear
+
+print("Avión en Cuerpo [u,v,w]             :", vel_avion)                 # Muestra vector avión original en Cuerpo
+print("Avión llevado a Wing-Fixed          :", Va_wing)                   # Muestra transformado a Wing
+print("Verificación (Wing→Body) Va_body_chk:", Va_body_chk)               # Reconversión para chequear
+
+
+
