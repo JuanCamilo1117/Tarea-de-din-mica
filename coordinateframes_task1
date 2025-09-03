@@ -29,7 +29,7 @@ def euler_to_rotation_matrix(roll_angle, pitch_angle, yaw_angle, degrees=True): 
                    [np.sin(yaw_angle), np.cos(yaw_angle), 0],
                    [0, 0, 1]])
 
-    # Matriz de rotación total Cuerpo → Tierra (orden Z-Y-X)
+    # Matriz de rotación total Cuerpo → Ned (orden Z-Y-X)
     #Se crea la funcion de matriz de rotacion que se expresa como R.
     R = Rz @ Ry @ Rx
 
@@ -38,53 +38,53 @@ def euler_to_rotation_matrix(roll_angle, pitch_angle, yaw_angle, degrees=True): 
 # === Datos iniciales ===
 # En este espacio se deben ingresar manualmente los vectores de velocidad
 # en el sistema con el que se desee trabajar.
-# Si se trabaja en Tierra → no es necesario modificar nada en Cuerpo.
-# Si se trabaja en Cuerpo → no es necesario modificar nada en Tierra.
+# Si se trabaja en Ned → no es necesario modificar nada en Cuerpo.
+# Si se trabaja en Cuerpo → no es necesario modificar nada en Ned.
 # Estos son solo valores de referencia, y funcionan en ambos sentidos.
-velocidad_avion_tierra = np.array([360,0 , 0])   # Velocidad del avión en sistema Tierra [Vx,Vy,Vz]
-velocidad_viento_tierra = np.array([0,0, 0])  # Velocidad del viento en sistema Tierra [Vx,Vy,Vz]
+velocidad_avion_Ned = np.array([360,0 , 0])   # Velocidad del avión en sistema Ned [Vx,Vy,Vz]
+velocidad_viento_Ned = np.array([0,0, 0])  # Velocidad del viento en sistema Ned [Vx,Vy,Vz]
 velocidad_avion_cuerpo = np.array([360,0 , 0])   # Velocidad del avión en sistema Cuerpo [u,v,w]
 velocidad_viento_cuerpo = np.array([20, 0, 20])  # Velocidad del viento en sistema Cuerpo [u,v,w]
 
 #
 yaw, pitch, roll = 0, 15, 0                 # Orientación del avión en grados
 
-# === Matriz de rotación Cuerpo → Tierra ===
+# === Matriz de rotación Cuerpo → Ned ===
 # Se calcula evaluando la función de matriz de rotación en los ángulos dados (roll, pitch, yaw)
-R_cuerpo_a_tierra = euler_to_rotation_matrix(roll, pitch, yaw)
+R_cuerpo_a_Ned = euler_to_rotation_matrix(roll, pitch, yaw)
 
 
 # === Selección del sistema de entrada ===
-sistema_vel_avion = "Cuerpo"   # "Tierra" o "Cuerpo"
-sistema_vel_viento = "Cuerpo"  # "Tierra" o "Cuerpo"
+sistema_vel_avion = "Cuerpo"   # "Ned" o "Cuerpo"
+sistema_vel_viento = "Cuerpo"  # "Ned" o "Cuerpo"
 
 # Velocidad del avión
-if sistema_vel_avion == "Tierra":
-    vel_avion = R_cuerpo_a_tierra.T @ velocidad_avion_tierra  # Convertir Tierra → Cuerpo
+if sistema_vel_avion == "Ned":
+    vel_avion = R_cuerpo_a_Ned.T @ velocidad_avion_Ned  # Convertir Ned → Cuerpo
 elif sistema_vel_avion == "Cuerpo":
     vel_avion = velocidad_avion_cuerpo                        # Ya está en Cuerpo, no transformar
 
 # Velocidad del viento
-if sistema_vel_viento == "Tierra":
-    vel_viento = R_cuerpo_a_tierra.T @ velocidad_viento_tierra  # Convertir Tierra → Cuerpo
+if sistema_vel_viento == "Ned":
+    vel_viento = R_cuerpo_a_Ned.T @ velocidad_viento_Ned  # Convertir Ned → Cuerpo
 elif sistema_vel_viento == "Cuerpo":
     vel_viento = velocidad_viento_cuerpo                        # Ya está en Cuerpo, no transformar
 
 # === Cálculo de velocidades en distintos sistemas de referencia ===
 
-# --- Velocidades transformadas (en sistema Tierra) ---
-# Convertimos las velocidades al sistema Tierra usando la matriz de rotación cuerpo→tierra.
-# (Si ya están en Tierra, el resultado no cambia porque la transformación se compensó antes con la traspuesta).
-vel_avion_rotado   = R_cuerpo_a_tierra @ vel_avion        # Velocidad del avión en Tierra
-vel_viento_rotado  = R_cuerpo_a_tierra @ vel_viento       # Velocidad del viento en Tierra
-vel_relativa_rotada = vel_viento_rotado + vel_avion_rotado # Velocidad relativa en Tierra (viento - avión))
+# --- Velocidades transformadas (en sistema Ned) ---
+# Convertimos las velocidades al sistema Ned usando la matriz de rotación cuerpo→Ned.
+# (Si ya están en Ned, el resultado no cambia porque la transformación se compensó antes con la traspuesta).
+vel_avion_rotado   = R_cuerpo_a_Ned @ vel_avion        # Velocidad del avión en Ned
+vel_viento_rotado  = R_cuerpo_a_Ned @ vel_viento       # Velocidad del viento en Ned
+vel_relativa_rotada = vel_viento_rotado + vel_avion_rotado # Velocidad relativa en Ned (viento - avión))
 
 # --- Velocidades en sistema Cuerpo ---
-# En el paso anterior las velocidades se expresaron en Tierra (por eso llevan el sufijo "rotado").
+# En el paso anterior las velocidades se expresaron en Ned (por eso llevan el sufijo "rotado").
 # Para volver al sistema del avión (Cuerpo), usamos la transpuesta de la matriz de rotación.
-# Nota: si los datos iniciales ya estaban en Cuerpo, el ida (Cuerpo→Tierra) y vuelta (Tierra→Cuerpo)
+# Nota: si los datos iniciales ya estaban en Cuerpo, el ida (Cuerpo→Ned) y vuelta (Ned→Cuerpo)
 #       se compensan y el resultado es coherente igualmente.
-vel_relativa_cuerpo = R_cuerpo_a_tierra.T @ vel_relativa_rotada  # Velocidad relativa en Cuerpo
+vel_relativa_cuerpo = R_cuerpo_a_Ned.T @ vel_relativa_rotada  # Velocidad relativa en Cuerpo
 
 # Componentes de la velocidad relativa en Cuerpo
 Vx_cuerpo, Vy_cuerpo, Vz_cuerpo = vel_relativa_cuerpo
@@ -141,7 +141,7 @@ def add_label(fig, start, vec, text, color="black"):
     ))
 
 def add_mesh(fig, vertices, faces, color, opacity, name):
-    vertices_rot = (R_cuerpo_a_tierra @ vertices.T).T
+    vertices_rot = (R_cuerpo_a_Ned @ vertices.T).T
     fig.add_trace(go.Mesh3d(
         x=vertices_rot[:,0],
         y=vertices_rot[:,1],
@@ -210,13 +210,13 @@ ala_vertices = np.array([
 add_mesh(fig, ala_vertices, faces_box, 'silver', 0.5, "Alas")
 
 # === Ejes de referencia ===
-ejes_cuerpo_en_tierra = R_cuerpo_a_tierra @ np.eye(3)
-add_arrow(fig, [0, 0, 0], [escala_ejes, 0, 0], "black", "X Tierra")
-add_arrow(fig, [0, 0, 0], [0, escala_ejes, 0], "black", "Y Tierra")
-add_arrow(fig, [0, 0, 0], [0, 0, escala_ejes], "black", "Z Tierra")
-add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,0]*escala_ejes, "red", "X Cuerpo")
-add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,1]*escala_ejes, "green", "Y Cuerpo")
-add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_tierra[:,2]*escala_ejes, "blue", "Z Cuerpo")
+ejes_cuerpo_en_Ned = R_cuerpo_a_Ned @ np.eye(3)
+add_arrow(fig, [0, 0, 0], [escala_ejes, 0, 0], "black", "X Ned")
+add_arrow(fig, [0, 0, 0], [0, escala_ejes, 0], "black", "Y Ned")
+add_arrow(fig, [0, 0, 0], [0, 0, escala_ejes], "black", "Z Ned")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_Ned[:,0]*escala_ejes, "red", "X Cuerpo")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_Ned[:,1]*escala_ejes, "green", "Y Cuerpo")
+add_arrow(fig, [0, 0, 0], ejes_cuerpo_en_Ned[:,2]*escala_ejes, "blue", "Z Cuerpo")
 
 # === Vectores aerodinámicos ===
 va_norm = vel_avion_rotado/np.linalg.norm(vel_avion_rotado)*escala_vectores
@@ -240,8 +240,8 @@ EPS = 1e-12                     # umbral numérico para "cero"
 
 def vec_constante(axis_T, valor, L=LONG_FLECHA):
     """
-    Devuelve un vector en Tierra con magnitud fija L y dirección dada por:
-      - el eje 'axis_T' (columna de ejes_cuerpo_en_tierra), y
+    Devuelve un vector en Ned con magnitud fija L y dirección dada por:
+      - el eje 'axis_T' (columna de ejes_cuerpo_en_Ned), y
       - el signo de 'valor' (p, q o r).
     Si 'valor' es ~0, retorna el vector nulo (no se dibuja flecha).
     """
@@ -251,10 +251,10 @@ def vec_constante(axis_T, valor, L=LONG_FLECHA):
         return np.zeros(3)
     return np.sign(valor) * axis_n * L
 
-# Vectores de p, q, r en Tierra (longitud constante, dirección por el signo)
-vec_p_T = vec_constante(ejes_cuerpo_en_tierra[:, 0], p)   # alrededor de X_B
-vec_q_T = vec_constante(ejes_cuerpo_en_tierra[:, 1], q)   # alrededor de Y_B
-vec_r_T = vec_constante(ejes_cuerpo_en_tierra[:, 2], r)   # alrededor de Z_B
+# Vectores de p, q, r en Ned (longitud constante, dirección por el signo)
+vec_p_T = vec_constante(ejes_cuerpo_en_Ned[:, 0], p)   # alrededor de X_B
+vec_q_T = vec_constante(ejes_cuerpo_en_Ned[:, 1], q)   # alrededor de Y_B
+vec_r_T = vec_constante(ejes_cuerpo_en_Ned[:, 2], r)   # alrededor de Z_B
 
 # Dibujo y etiquetas (sin cambios)
 add_arrow(fig, [0, 0, 0], vec_p_T, "orange", "p")
@@ -275,14 +275,14 @@ print(f"r (yaw rate):   {r:.4f}")
 
 
 # Entrada de datos
-print(f"Velocidad del avión ((Entrada) {sistema_vel_avion}): {velocidad_avion_tierra if sistema_vel_avion=='Tierra' else velocidad_avion_cuerpo}")
-print(f"Velocidad del viento ((Entrada) {sistema_vel_viento}): {velocidad_viento_tierra if sistema_vel_viento=='Tierra' else velocidad_viento_cuerpo}\n")
+print(f"Velocidad del avión ((Entrada) {sistema_vel_avion}): {velocidad_avion_Ned if sistema_vel_avion=='Ned' else velocidad_avion_cuerpo}")
+print(f"Velocidad del viento ((Entrada) {sistema_vel_viento}): {velocidad_viento_Ned if sistema_vel_viento=='Ned' else velocidad_viento_cuerpo}\n")
 
 
 # --- Velocidades transformadas ---
-print("Velocidad del avión expresada en sistema Tierra:", vel_avion_rotado)
-print("Velocidad del viento expresada en sistema Tierra:", vel_viento_rotado)
-print("Velocidad relativa (Vv - Va) expresada en Tierra:", vel_relativa_rotada, "\n")
+print("Velocidad del avión expresada en sistema Ned:", vel_avion_rotado)
+print("Velocidad del viento expresada en sistema Ned:", vel_viento_rotado)
+print("Velocidad relativa (Vv - Va) expresada en Ned:", vel_relativa_rotada, "\n")
 
 # --- Velocidades en cuerpo ---
 print(f"Velocidad del avión en sistema Cuerpo: {vel_avion}")
@@ -397,6 +397,7 @@ print("Verificación (Wing→Body) Vv_body_chk:", Vv_body_chk, "\n")         # R
 print("Avión en Cuerpo [u,v,w]             :", vel_avion)                 # Muestra vector avión original en Cuerpo
 print("Avión llevado a Wing-Fixed          :", Va_wing)                   # Muestra transformado a Wing
 print("Verificación (Wing→Body) Va_body_chk:", Va_body_chk)               # Reconversión para chequear
+
 
 
 
